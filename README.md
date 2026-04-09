@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Unsupervised Neural Network for Multi-Genre Music Generation
 
 This repository implements all four assignment tasks for CSE425/EEE474:
@@ -86,3 +87,6 @@ python -m src.generation.generate_music --checkpoint outputs/checkpoints/transfo
 
 - Task 4 supports both real human scores (CSV) and a simulated reward function for debugging.
 - Replace simulated rewards with survey results to complete final deliverables.
+=======
+# cse425
+>>>>>>> b207f2421144af4e5effb0d93a442703bf18aed7
