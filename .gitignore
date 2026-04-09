@@ -1,0 +1,23 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Data
+data/raw_midi/
+data/raw_midi_small/
+data/processed/
+data/processed_small_fast/
+data/train_test_split/
+
+# Outputs
+outputs/checkpoints/
+outputs/generated_midis/
+outputs/plots/
+
+# Editor / OS
+.vscode/
+.DS_Store
+Thumbs.db

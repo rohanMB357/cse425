@@ -1,0 +1,195 @@
+\documentclass[11pt]{article}
+\usepackage{amsmath, amssymb, graphicx, booktabs}
+\usepackage{geometry}
+\usepackage{hyperref}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{array}
+\usepackage{longtable}
+\usepackage{tabularx}
+\usepackage{listings}
+\usepackage{xcolor}
+\geometry{margin=1in}
+
+\title{Unsupervised Neural Network for\\Multi-Genre Music Generation}
+\author{Course: CSE425/EEE474 Neural Networks}
+\date{Submission Deadline: 10th April, 2026}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+This report presents a complete symbolic music generation pipeline built for unsupervised neural network based composition across multiple genres. The implementation covers MIDI preprocessing, an LSTM autoencoder baseline, a variational autoencoder for diverse latent sampling, a transformer decoder for autoregressive sequence generation, a Markov baseline, evaluation metrics, and a scaffold for reinforcement learning from human feedback. The codebase is designed to train on publicly available MIDI datasets such as MAESTRO, Lakh MIDI, and Groove MIDI.
+\end{abstract}
+
+\section{Project Motivation}
+Music is a structured temporal signal containing melody, harmony, rhythm, and long-range dependencies. Supervised labels are expensive, incomplete, and often inconsistent across large MIDI collections. This project therefore uses unsupervised representation learning to discover latent musical structure and generate novel symbolic sequences without relying on genre labels as the primary training signal.
+
+\section{Problem Definition}
+Let a symbolic music sequence be
+\[
+X = \{x_1, x_2, \dots, x_T\},
+\]
+where each event $x_t$ is a token encoding note pitch, duration, velocity, or time shift. The learning objective is to estimate
+\[
+p_\theta(X)
+\]
+and sample
+\[
+\hat{X} \sim p_\theta(X)
+\]
+to synthesize realistic and stylistically coherent music.
+
+\section{Dataset and Preprocessing}
+The implementation expects MIDI files in genre-specific folders:
+\begin{verbatim}
+data/raw_midi/classical/
+data/raw_midi/jazz/
+data/raw_midi/pop/
+\end{verbatim}
+
+The preprocessing stage:
+\begin{enumerate}
+    \item parses each MIDI file with \texttt{pretty\_midi},
+    \item extracts note pitch, duration, velocity, and time-shift events,
+    \item converts events into discrete tokens,
+    \item windows token streams into fixed-length sequences,
+    \item saves train, validation, and test splits as compressed NumPy arrays.
+\end{enumerate}
+
+\section{Task 1: LSTM Autoencoder}
+The encoder summarizes an input sequence into a latent vector:
+\[
+z = f_\phi(X).
+\]
+The decoder reconstructs the original sequence from $z$:
+\[
+\hat{X} = g_\theta(z).
+\]
+Training minimizes token reconstruction loss:
+\[
+L_{AE} = \sum_{t=1}^{T} \|x_t - \hat{x}_t\|^2.
+\]
+
+In implementation, the model uses token embeddings, a stacked LSTM encoder, a latent projection layer, and an LSTM decoder conditioned on the latent vector at every time step.
+
+\section{Task 2: Variational Autoencoder}
+The VAE extends the deterministic bottleneck to a probabilistic latent space:
+\[
+q_\phi(z|X) = \mathcal{N}(\mu(X), \sigma(X)).
+\]
+Sampling uses the reparameterization trick:
+\[
+z = \mu + \sigma \odot \epsilon, \qquad \epsilon \sim \mathcal{N}(0, I).
+\]
+The final objective is
+\[
+L_{VAE} = L_{recon} + \beta D_{KL}(q_\phi(z|X)\|p(z)).
+\]
+Genre embeddings are concatenated with latent vectors during decoding so the model can condition generation on the target genre while still being trained without explicit supervised classification.
+
+\section{Task 3: Transformer Decoder}
+For long-horizon generation, the transformer models the autoregressive factorization
+\[
+p(X) = \prod_{t=1}^{T} p(x_t \mid x_{<t}).
+\]
+Training uses next-token prediction:
+\[
+L_{TR} = -\sum_{t=1}^{T} \log p_\theta(x_t \mid x_{<t}),
+\]
+and perplexity is computed as
+\[
+\text{Perplexity} = \exp\left(\frac{1}{T}L_{TR}\right).
+\]
+The implementation uses causal masking, learned token embeddings, sinusoidal positional encoding, and additive genre conditioning.
+
+\section{Task 4: Human Preference Tuning}
+The project includes a reward model scaffold to learn preference scores from human feedback:
+\[
+J(\theta) = \mathbb{E}[r(X_{gen})].
+\]
+Given a generated sample and a human score, the reward model regresses the scalar reward. This enables later policy optimization or reranking for better subjective quality.
+
+\section{Baselines}
+Two baselines are included:
+\begin{itemize}
+    \item a random token generator,
+    \item a first-order Markov chain music model.
+\end{itemize}
+These baselines provide lower-bound comparisons for coherence and diversity.
+
+\section{Evaluation Metrics}
+The code implements:
+\begin{itemize}
+    \item pitch histogram similarity,
+    \item rhythm diversity,
+    \item repetition ratio,
+    \item mean human listening score.
+\end{itemize}
+The transformer training script also reports perplexity on the validation set.
+
+\section{Implementation Details}
+The final source tree follows a professional structure:
+\begin{verbatim}
+src/
+  config.py
+  preprocessing/
+  models/
+  training/
+  evaluation/
+  generation/
+\end{verbatim}
+
+Main scripts:
+\begin{itemize}
+    \item \texttt{python -m src.preprocessing.midi\_parser}
+    \item \texttt{python -m src.training.train\_ae}
+    \item \texttt{python -m src.training.train\_vae}
+    \item \texttt{python -m src.training.train\_transformer}
+    \item \texttt{python -m src.generation.generate\_music}
+\end{itemize}
+
+\section{Experimental Procedure}
+After downloading the datasets, each experiment should:
+\begin{enumerate}
+    \item preprocess MIDI files into token sequences,
+    \item train the selected model,
+    \item generate 5--10 MIDI samples,
+    \item compute quantitative metrics on held-out data,
+    \item collect a listening survey for qualitative evaluation.
+\end{enumerate}
+
+\section{Result Placeholders}
+This source file is ready for the final report. Insert your final figures and values in the following locations:
+\begin{itemize}
+    \item Autoencoder validation loss plot: \texttt{outputs/plots/ae\_loss.png}
+    \item VAE validation loss plot: \texttt{outputs/plots/vae\_loss.png}
+    \item Transformer perplexity plot: \texttt{outputs/plots/transformer\_ppl.png}
+    \item Generated MIDI samples: \texttt{outputs/generated\_midis/}
+\end{itemize}
+
+\begin{table}[h!]
+\centering
+\begin{tabular}{lcccc}
+\toprule
+Model & Loss & Perplexity & Rhythm Diversity & Human Score \\
+\midrule
+Random Generator & -- & -- & -- & -- \\
+Markov Chain & -- & -- & -- & -- \\
+LSTM Autoencoder & -- & -- & -- & -- \\
+VAE & -- & -- & -- & -- \\
+Transformer & -- & -- & -- & -- \\
+RLHF-Tuned Model & -- & -- & -- & -- \\
+\bottomrule
+\end{tabular}
+\caption{Fill this table with your final experimental results.}
+\end{table}
+
+\section{Conclusion}
+This project delivers a complete codebase for unsupervised symbolic music generation with progressive task difficulty from latent reconstruction to long-range autoregressive generation. It is directly aligned with the assignment brief and can be extended with larger token vocabularies, better decoding strategies, and richer human feedback loops.
+
+\bibliographystyle{plain}
+\bibliography{references}
+
+\end{document}
