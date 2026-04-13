@@ -1,3 +1,5 @@
+# file: src/evaluation/metrics.py
+
 from __future__ import annotations
 
 import argparse
@@ -8,6 +10,8 @@ import numpy as np
 
 from src.evaluation.pitch_histogram import pitch_histogram_similarity
 from src.evaluation.rhythm_score import rhythm_diversity
+from src.preprocessing.midi_parser import parse_midi_to_notes
+from src.preprocessing.tokenizer import MusicTokenizer
 
 
 def repetition_ratio(tokens: np.ndarray, ngram: int = 4) -> float:
@@ -41,12 +45,57 @@ def markov_baseline(train_tokens: np.ndarray, seq_len: int, n: int = 100) -> np.
     return np.array(samples, dtype=np.int64)
 
 
+def load_npz_tokens(path: Path) -> np.ndarray:
+    payload = np.load(path)
+    if "x" in payload:
+        return payload["x"]
+    first_key = list(payload.keys())[0]
+    return payload[first_key]
+
+
+def load_midi_folder_tokens(path: Path, tokenizer: MusicTokenizer, seq_len: int = 64) -> np.ndarray:
+    midi_files = [p for p in path.rglob("*") if p.is_file() and p.suffix.lower() in {".mid", ".midi"}]
+    sequences: list[np.ndarray] = []
+
+    for midi_file in midi_files:
+        try:
+            notes = parse_midi_to_notes(midi_file)
+            if not notes:
+                continue
+            token_ids = tokenizer.encode_events(notes)
+            token_ids = np.array(token_ids[:seq_len], dtype=np.int64)
+
+            if token_ids.size < seq_len:
+                pad_id = tokenizer.stoi["<PAD>"]
+                token_ids = np.pad(token_ids, (0, seq_len - token_ids.size), constant_values=pad_id)
+
+            sequences.append(token_ids)
+        except Exception:
+            continue
+
+    if not sequences:
+        raise RuntimeError(f"No valid MIDI files found in: {path}")
+
+    return np.stack(sequences, axis=0)
+
+
+def load_tokens(path_str: str, tokenizer: MusicTokenizer, seq_len: int = 64) -> np.ndarray:
+    path = Path(path_str)
+    if path.is_file() and path.suffix.lower() == ".npz":
+        return load_npz_tokens(path)
+    if path.is_dir():
+        return load_midi_folder_tokens(path, tokenizer, seq_len=seq_len)
+    raise FileNotFoundError(f"Unsupported input path: {path}")
+
+
 def evaluate(real: np.ndarray, generated: np.ndarray) -> dict:
     real_flat = real.flatten()
     gen_flat = generated.flatten()
 
-    real_hist = np.bincount(real_flat, minlength=max(real_flat.max(), gen_flat.max()) + 1).astype(np.float64)
-    gen_hist = np.bincount(gen_flat, minlength=real_hist.shape[0]).astype(np.float64)
+    max_token = int(max(real_flat.max(initial=0), gen_flat.max(initial=0))) + 1
+    real_hist = np.bincount(real_flat, minlength=max_token).astype(np.float64)
+    gen_hist = np.bincount(gen_flat, minlength=max_token).astype(np.float64)
+
     if real_hist.sum() > 0:
         real_hist /= real_hist.sum()
     if gen_hist.sum() > 0:
@@ -68,15 +117,20 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--real", type=str, required=True)
     parser.add_argument("--generated", type=str, required=True)
-    parser.add_argument("--out", type=str, default="outputs")
+    parser.add_argument("--out", type=str, default="outputs/plots/metrics_summary.json")
+    parser.add_argument("--vocab", type=str, default="data/processed_small_fast/vocab.json")
+    parser.add_argument("--seq-len", type=int, default=64)
     args = parser.parse_args()
 
-    real = np.load(args.real)["x"]
-    gen_payload = np.load(args.generated)
-    generated = gen_payload["x"] if "x" in gen_payload else gen_payload[list(gen_payload.keys())[0]]
+    tokenizer = MusicTokenizer.from_vocab(args.vocab)
+
+    real = load_tokens(args.real, tokenizer, seq_len=args.seq_len)
+    generated = load_tokens(args.generated, tokenizer, seq_len=args.seq_len)
 
     result = evaluate(real, generated)
-    out_path = Path(args.out) / "metrics_summary.json"
+
+    out_path = Path(args.out)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(result, indent=2), encoding="utf-8")
 
     print(json.dumps(result, indent=2))

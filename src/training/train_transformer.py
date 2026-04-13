@@ -1,11 +1,15 @@
+# file: src/training/train_transformer.py
+
 from __future__ import annotations
 
 import argparse
+import time
 from pathlib import Path
 
 import numpy as np
 import torch
 from torch import nn
+from tqdm import tqdm
 
 from src.models.transformer import MusicTransformer
 from src.training.utils import build_loader, load_npz_dataset, pick_device, save_curve
@@ -24,14 +28,27 @@ def train(args: argparse.Namespace) -> None:
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr)
     ce = nn.CrossEntropyLoss()
 
+    print(f"Starting Transformer training on device={device}")
+    print(
+        f"Dataset size={x.size(0)} sequences, seq_len={x.size(1)}, "
+        f"batch_size={args.batch_size}, epochs={args.epochs}, "
+        f"vocab_size={vocab_size}, num_genres={num_genres}"
+    )
+
     epoch_losses: list[float] = []
-    for _epoch in range(args.epochs):
+    epoch_perplexities: list[float] = []
+
+    for epoch_idx in range(1, args.epochs + 1):
+        start = time.perf_counter()
         model.train()
         running = 0.0
         n = 0
-        for xb, gb in loader:
+
+        progress = tqdm(loader, desc=f"Epoch {epoch_idx}/{args.epochs}", leave=False, mininterval=1.0)
+        for xb, gb in progress:
             xb = xb.to(device)
             gb = gb.to(device)
+
             inp = xb[:, :-1]
             tgt = xb[:, 1:]
 
@@ -44,15 +61,33 @@ def train(args: argparse.Namespace) -> None:
 
             running += float(loss.item())
             n += 1
-        epoch_losses.append(running / max(1, n))
+            if n % 100 == 0:
+             progress.set_postfix(loss=running / max(1, n))
 
-    perp = [float(np.exp(v)) for v in epoch_losses]
+        epoch_loss = running / max(1, n)
+        epoch_perplexity = float(np.exp(epoch_loss))
+
+        epoch_losses.append(epoch_loss)
+        epoch_perplexities.append(epoch_perplexity)
+
+        elapsed = time.perf_counter() - start
+        print(
+            f"Epoch {epoch_idx}/{args.epochs} - "
+            f"loss: {epoch_loss:.8f} - perplexity: {epoch_perplexity:.8f} - "
+            f"time: {elapsed:.1f}s"
+        )
 
     out_root = Path(args.out)
     (out_root / "checkpoints").mkdir(parents=True, exist_ok=True)
+    (out_root / "plots").mkdir(parents=True, exist_ok=True)
+
     torch.save(model.state_dict(), out_root / "checkpoints" / "transformer.pt")
     save_curve(epoch_losses, out_root / "plots" / "transformer_loss.json")
-    save_curve(perp, out_root / "plots" / "transformer_perplexity.json")
+    save_curve(epoch_perplexities, out_root / "plots" / "transformer_perplexity.json")
+
+    print(f"Saved checkpoint to: {out_root / 'checkpoints' / 'transformer.pt'}")
+    print(f"Saved loss curve to: {out_root / 'plots' / 'transformer_loss.json'}")
+    print(f"Saved perplexity curve to: {out_root / 'plots' / 'transformer_perplexity.json'}")
 
 
 if __name__ == "__main__":
@@ -65,5 +100,4 @@ if __name__ == "__main__":
     parser.add_argument("--device", type=str, default="cuda")
     args = parser.parse_args()
 
-    Path(args.out, "plots").mkdir(parents=True, exist_ok=True)
     train(args)
